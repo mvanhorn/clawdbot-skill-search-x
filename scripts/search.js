@@ -1,33 +1,45 @@
 #!/usr/bin/env node
 /**
- * Search X/Twitter using Grok's x_search tool
- * 
- * Uses xAI Responses API for real-time X search with citations
+ * Search X/Twitter using either:
+ * 1. xAI Grok x_search tool (default) - requires XAI_API_KEY
+ * 2. X API directly (--x-api flag) - requires X_BEARER_TOKEN
  */
 
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
 
-const API_BASE = 'api.x.ai';
+const XAI_API_BASE = 'api.x.ai';
+const X_API_BASE = 'api.x.com';
 const DEFAULT_MODEL = process.env.SEARCH_X_MODEL || 'grok-4-1-fast';
 const DEFAULT_DAYS = parseInt(process.env.SEARCH_X_DAYS, 10) || 30;
 
-function getApiKey() {
-  // Check environment variable
-  if (process.env.XAI_API_KEY) {
-    return process.env.XAI_API_KEY;
+function getApiKey(keyType) {
+  // X API Bearer Token
+  if (keyType === 'x') {
+    if (process.env.X_BEARER_TOKEN) return process.env.X_BEARER_TOKEN;
+    if (process.env.TWITTER_BEARER_TOKEN) return process.env.TWITTER_BEARER_TOKEN;
+    
+    const configPath = path.join(process.env.HOME, '.clawdbot', 'clawdbot.json');
+    if (fs.existsSync(configPath)) {
+      try {
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        return config?.skills?.entries?.['search-x']?.xBearerToken ||
+               config?.skills?.entries?.bird?.bearerToken;
+      } catch (e) {}
+    }
+    return null;
   }
   
-  // Check clawdbot config (search-x skill)
+  // xAI API Key (default)
+  if (process.env.XAI_API_KEY) return process.env.XAI_API_KEY;
+  
   const configPath = path.join(process.env.HOME, '.clawdbot', 'clawdbot.json');
   if (fs.existsSync(configPath)) {
     try {
       const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-      // Try search-x first, then xai as fallback
-      const key = config?.skills?.entries?.['search-x']?.apiKey ||
-                  config?.skills?.entries?.xai?.apiKey;
-      if (key) return key;
+      return config?.skills?.entries?.['search-x']?.apiKey ||
+             config?.skills?.entries?.xai?.apiKey;
     } catch (e) {}
   }
   
@@ -44,6 +56,8 @@ function parseArgs(args) {
     compact: false,
     linksOnly: false,
     model: DEFAULT_MODEL,
+    useXApi: false,  // NEW: use X API instead of xAI
+    maxResults: 20,
   };
   
   let i = 0;
@@ -64,6 +78,10 @@ function parseArgs(args) {
       result.linksOnly = true;
     } else if (arg === '--model' || arg === '-m') {
       result.model = args[++i];
+    } else if (arg === '--x-api' || arg === '--native') {
+      result.useXApi = true;
+    } else if (arg === '--max' || arg === '-n') {
+      result.maxResults = parseInt(args[++i], 10);
     } else if (!arg.startsWith('-')) {
       result.query = args.slice(i).join(' ');
       break;
@@ -82,8 +100,153 @@ function getDateRange(days) {
   return {
     from_date: from.toISOString().split('T')[0],
     to_date: to.toISOString().split('T')[0],
+    from_iso: from.toISOString(),
+    to_iso: to.toISOString(),
   };
 }
+
+// ==================== X API (Native) ====================
+
+function buildXApiQuery(options) {
+  let q = options.query;
+  
+  // Add handle filters
+  if (options.handles.length > 0) {
+    const fromClause = options.handles.map(h => `from:${h}`).join(' OR ');
+    q = `(${fromClause}) ${q}`;
+  }
+  
+  // Add exclusions
+  if (options.excludeHandles.length > 0) {
+    const excludeClause = options.excludeHandles.map(h => `-from:${h}`).join(' ');
+    q = `${q} ${excludeClause}`;
+  }
+  
+  // Exclude retweets by default for cleaner results
+  q = `${q} -is:retweet`;
+  
+  return q;
+}
+
+async function searchXNative(options) {
+  const bearerToken = getApiKey('x');
+  if (!bearerToken) {
+    console.error('❌ No X API Bearer Token found.');
+    console.error('   Set X_BEARER_TOKEN environment variable.');
+    console.error('   Get your token at: https://console.x.com');
+    process.exit(1);
+  }
+  
+  const dateRange = getDateRange(Math.min(options.days, 7)); // Recent search is 7 days max
+  const query = buildXApiQuery(options);
+  
+  const params = new URLSearchParams({
+    query: query,
+    max_results: Math.min(options.maxResults, 100).toString(),
+    'tweet.fields': 'created_at,author_id,public_metrics,entities',
+    'user.fields': 'name,username,verified',
+    'expansions': 'author_id',
+    'start_time': dateRange.from_iso,
+  });
+  
+  return new Promise((resolve, reject) => {
+    const req = https.request({
+      hostname: X_API_BASE,
+      path: `/2/tweets/search/recent?${params.toString()}`,
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${bearerToken}`,
+      },
+    }, (res) => {
+      let data = '';
+      
+      res.on('data', chunk => data += chunk);
+      
+      res.on('end', () => {
+        if (res.statusCode !== 200) {
+          console.error(`❌ X API Error (${res.statusCode}):`, data.slice(0, 500));
+          process.exit(1);
+        }
+        
+        try {
+          const response = JSON.parse(data);
+          
+          // Full JSON output
+          if (options.json) {
+            console.log(JSON.stringify(response, null, 2));
+            resolve(response);
+            return;
+          }
+          
+          // Build user lookup map
+          const users = {};
+          if (response.includes?.users) {
+            for (const user of response.includes.users) {
+              users[user.id] = user;
+            }
+          }
+          
+          // Format results
+          const tweets = response.data || [];
+          
+          if (tweets.length === 0) {
+            console.log('No results found.');
+            resolve({ text: '', citations: [] });
+            return;
+          }
+          
+          const citations = [];
+          const lines = [];
+          
+          for (const tweet of tweets) {
+            const user = users[tweet.author_id] || { username: 'unknown', name: 'Unknown' };
+            const url = `https://x.com/${user.username}/status/${tweet.id}`;
+            citations.push(url);
+            
+            if (!options.linksOnly) {
+              const date = tweet.created_at ? new Date(tweet.created_at).toLocaleDateString() : '';
+              const metrics = tweet.public_metrics || {};
+              const engagement = metrics.like_count ? ` (❤️ ${metrics.like_count})` : '';
+              
+              lines.push(`**@${user.username}** (${user.name}) — ${date}${engagement}`);
+              lines.push(tweet.text);
+              lines.push(`🔗 ${url}`);
+              lines.push('');
+            }
+          }
+          
+          // Links only output
+          if (options.linksOnly) {
+            citations.forEach(url => console.log(url));
+            resolve({ text: '', citations });
+            return;
+          }
+          
+          // Standard output
+          console.log(lines.join('\n'));
+          
+          if (!options.compact) {
+            console.log(`\n📊 Found ${tweets.length} tweets via X API`);
+          }
+          
+          resolve({ text: lines.join('\n'), citations });
+        } catch (e) {
+          console.error('❌ Failed to parse response:', e.message);
+          process.exit(1);
+        }
+      });
+    });
+    
+    req.on('error', (e) => {
+      console.error('❌ Request failed:', e.message);
+      process.exit(1);
+    });
+    
+    req.end();
+  });
+}
+
+// ==================== xAI Grok x_search ====================
 
 function extractContent(response) {
   if (!response.output) return { text: '', citations: [] };
@@ -110,24 +273,24 @@ function extractContent(response) {
     }
   }
   
-  // Dedupe citations
   citations = [...new Set(citations)];
   
   return { text, citations };
 }
 
-async function searchX(options) {
-  const apiKey = getApiKey();
+async function searchXGrok(options) {
+  const apiKey = getApiKey('xai');
   if (!apiKey) {
-    console.error('❌ No API key found.');
+    console.error('❌ No xAI API key found.');
     console.error('   Set XAI_API_KEY or run: clawdbot config set skills.entries.search-x.apiKey "xai-YOUR-KEY"');
     console.error('   Get your key at: https://console.x.ai');
+    console.error('');
+    console.error('   💡 Alternatively, use --x-api flag with X_BEARER_TOKEN for native X API search.');
     process.exit(1);
   }
   
   const dateRange = getDateRange(options.days);
   
-  // Build x_search tool config
   const xSearchTool = {
     type: 'x_search',
     x_search: {
@@ -165,7 +328,7 @@ Only include REAL posts. If none found, say so clearly.`,
   
   return new Promise((resolve, reject) => {
     const req = https.request({
-      hostname: API_BASE,
+      hostname: XAI_API_BASE,
       path: '/v1/responses',
       method: 'POST',
       headers: {
@@ -186,7 +349,6 @@ Only include REAL posts. If none found, say so clearly.`,
         try {
           const response = JSON.parse(data);
           
-          // Full JSON output
           if (options.json) {
             console.log(JSON.stringify(response, null, 2));
             resolve(response);
@@ -195,7 +357,6 @@ Only include REAL posts. If none found, say so clearly.`,
           
           const { text, citations } = extractContent(response);
           
-          // Links only output
           if (options.linksOnly) {
             if (citations.length > 0) {
               citations.forEach(url => console.log(url));
@@ -206,7 +367,6 @@ Only include REAL posts. If none found, say so clearly.`,
             return;
           }
           
-          // Standard or compact output
           if (text) {
             console.log(text);
           } else {
@@ -239,31 +399,43 @@ Only include REAL posts. If none found, say so clearly.`,
   });
 }
 
-// Main
+// ==================== Main ====================
+
 const args = process.argv.slice(2);
 
 if (args.length === 0 || args.includes('--help')) {
   console.log(`
-🔍 Search X — Real-time Twitter/X search via Grok
+🔍 Search X — Real-time Twitter/X search
+
+Two modes:
+  1. xAI Grok (default) - Uses x_search tool, up to 30 days, requires XAI_API_KEY
+  2. X API (--x-api)    - Native search, up to 7 days, requires X_BEARER_TOKEN
 
 Usage:
   search-x [options] "your search query"
 
 Options:
-  --days, -d <n>        Search last N days (default: ${DEFAULT_DAYS})
+  --days, -d <n>        Search last N days (default: ${DEFAULT_DAYS}, max 7 for --x-api)
   --handles, -h <list>  Only these handles (comma-separated, @ optional)
   --exclude, -e <list>  Exclude these handles
   --compact, -c         Minimal output (just tweets)
   --links-only, -l      Only output X links
   --json, -j            Full JSON response
-  --model, -m <model>   Model (default: ${DEFAULT_MODEL})
+  --max, -n <n>         Max results for --x-api (default: 20, max: 100)
+  --x-api, --native     Use X API directly instead of xAI
+  --model, -m <model>   Model for xAI (default: ${DEFAULT_MODEL})
   --help                Show this help
+
+Environment:
+  XAI_API_KEY           xAI API key (for default mode)
+  X_BEARER_TOKEN        X API Bearer Token (for --x-api mode)
 
 Examples:
   search-x "Claude Code tips"
   search-x --days 7 "AI news"
-  search-x --handles elonmusk,OpenAI "AI announcements"
-  search-x --days 30 --compact "Remotion video"
+  search-x --x-api "trending AI"                    # Use X API directly
+  search-x --x-api --max 50 "Remotion video"        # More results via X API
+  search-x --handles elonmusk,OpenAI "announcements"
   search-x --links-only "trending tech"
 `);
   process.exit(0);
@@ -276,9 +448,21 @@ if (!options.query) {
   process.exit(1);
 }
 
-// Show search params
-if (!options.json && !options.linksOnly) {
-  console.error(`🔍 Searching X: "${options.query}" (last ${options.days} days)...\n`);
+// Adjust days for X API (max 7)
+if (options.useXApi && options.days > 7) {
+  console.error(`⚠️  X API only supports 7-day lookback (requested ${options.days}), using 7 days.\n`);
+  options.days = 7;
 }
 
-searchX(options);
+// Show search params
+if (!options.json && !options.linksOnly) {
+  const mode = options.useXApi ? 'X API' : 'xAI Grok';
+  console.error(`🔍 Searching X via ${mode}: "${options.query}" (last ${options.days} days)...\n`);
+}
+
+// Run search
+if (options.useXApi) {
+  searchXNative(options);
+} else {
+  searchXGrok(options);
+}
