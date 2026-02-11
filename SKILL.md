@@ -137,6 +137,7 @@ Each result includes:
 **What this skill does NOT do:**
 - Does not post, like, retweet, or modify any X/Twitter content
 - Does not access your X/Twitter account or DMs
+- Does not read config files or access the local filesystem
 - Does not send credentials to any third-party endpoint
 - Cannot be invoked autonomously by the agent (`disable-model-invocation: true`)
 

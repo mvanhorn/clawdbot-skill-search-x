@@ -6,8 +6,6 @@
  */
 
 const https = require('https');
-const fs = require('fs');
-const path = require('path');
 
 const XAI_API_BASE = 'api.x.ai';
 const X_API_BASE = 'api.x.com';
@@ -15,35 +13,10 @@ const DEFAULT_MODEL = process.env.SEARCH_X_MODEL || 'grok-4-1-fast';
 const DEFAULT_DAYS = parseInt(process.env.SEARCH_X_DAYS, 10) || 30;
 
 function getApiKey(keyType) {
-  // X API Bearer Token
   if (keyType === 'x') {
-    if (process.env.X_BEARER_TOKEN) return process.env.X_BEARER_TOKEN;
-    if (process.env.TWITTER_BEARER_TOKEN) return process.env.TWITTER_BEARER_TOKEN;
-    
-    const configPath = path.join(process.env.HOME, '.clawdbot', 'clawdbot.json');
-    if (fs.existsSync(configPath)) {
-      try {
-        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-        return config?.skills?.entries?.['search-x']?.xBearerToken ||
-               config?.skills?.entries?.bird?.bearerToken;
-      } catch (e) {}
-    }
-    return null;
+    return process.env.X_BEARER_TOKEN || process.env.TWITTER_BEARER_TOKEN || null;
   }
-  
-  // xAI API Key (default)
-  if (process.env.XAI_API_KEY) return process.env.XAI_API_KEY;
-  
-  const configPath = path.join(process.env.HOME, '.clawdbot', 'clawdbot.json');
-  if (fs.existsSync(configPath)) {
-    try {
-      const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-      return config?.skills?.entries?.['search-x']?.apiKey ||
-             config?.skills?.entries?.xai?.apiKey;
-    } catch (e) {}
-  }
-  
-  return null;
+  return process.env.XAI_API_KEY || null;
 }
 
 function parseArgs(args) {
