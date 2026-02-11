@@ -12,7 +12,7 @@ triggers:
   - x search
   - twitter search
 metadata:
-  openclaw:
+  clawdbot:
     emoji: "🔍"
     primaryEnv: XAI_API_KEY
     requires:
