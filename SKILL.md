@@ -2,6 +2,8 @@
 name: search-x
 description: Search X/Twitter in real-time using Grok or X API. Find tweets, trends, and discussions with citations.
 homepage: https://docs.x.ai
+user-invocable: true
+disable-model-invocation: true
 triggers:
   - search x
   - search twitter
@@ -10,8 +12,12 @@ triggers:
   - x search
   - twitter search
 metadata:
-  clawdbot:
+  openclaw:
     emoji: "🔍"
+    primaryEnv: XAI_API_KEY
+    requires:
+      bins: [node]
+      env: [XAI_API_KEY]
 ---
 
 # Search X
@@ -113,10 +119,25 @@ Each result includes:
 ## Environment Variables
 
 **xAI Mode:**
-- `XAI_API_KEY` - Your xAI API key
+- `XAI_API_KEY` - Your xAI API key (required for default mode)
 - `SEARCH_X_MODEL` - Model override (default: grok-4-1-fast)
 - `SEARCH_X_DAYS` - Default days to search (default: 30)
 
 **X API Mode:**
 - `X_BEARER_TOKEN` - Your X API Bearer Token
 - `TWITTER_BEARER_TOKEN` - Alternative env var name
+
+## Security & Permissions
+
+**What this skill does:**
+- Calls xAI's `/v1/responses` endpoint (Grok mode) or X's `/2/tweets/search/recent` endpoint (X API mode)
+- Returns public tweet data with URLs and citations
+- All requests go only to `api.x.ai` or `api.x.com`
+
+**What this skill does NOT do:**
+- Does not post, like, retweet, or modify any X/Twitter content
+- Does not access your X/Twitter account or DMs
+- Does not send credentials to any third-party endpoint
+- Cannot be invoked autonomously by the agent (`disable-model-invocation: true`)
+
+Review `scripts/search.js` before first use to verify behavior.
