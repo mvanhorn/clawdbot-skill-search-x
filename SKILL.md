@@ -1,6 +1,10 @@
 ---
 name: search-x
-description: Search X/Twitter in real-time using Grok. Find tweets, trends, and discussions with citations.
+version: "1.1.0"
+description: Real-time X/Twitter search powered by Grok-4. Find tweets, trends, and discussions with citations. Grok-4.20 also returns image results alongside tweet citations.
+author: mvanhorn
+license: MIT
+repository: https://github.com/mvanhorn/clawdbot-skill-search-x
 homepage: https://docs.x.ai
 triggers:
   - search x
@@ -12,6 +16,16 @@ triggers:
 metadata:
   clawdbot:
     emoji: "🔍"
+    requires:
+      env:
+        - XAI_API_KEY
+    primaryEnv: XAI_API_KEY
+    tags:
+      - x
+      - twitter
+      - search
+      - grok
+      - real-time
 ---
 
 # Search X
