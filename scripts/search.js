@@ -44,6 +44,8 @@ function parseArgs(args) {
     compact: false,
     linksOnly: false,
     model: DEFAULT_MODEL,
+    sort: 'recent',
+    sortProvided: false,
   };
   
   let i = 0;
@@ -64,6 +66,9 @@ function parseArgs(args) {
       result.linksOnly = true;
     } else if (arg === '--model' || arg === '-m') {
       result.model = args[++i];
+    } else if (arg === '--sort' || arg === '-s') {
+      result.sort = (args[++i] || '').toLowerCase();
+      result.sortProvided = true;
     } else if (!arg.startsWith('-')) {
       result.query = args.slice(i).join(' ');
       break;
@@ -71,6 +76,17 @@ function parseArgs(args) {
     i++;
   }
   
+  if (!result.sortProvided && result.compact) {
+    result.sort = 'impressions';
+  }
+
+  const allowedSort = ['impressions', 'likes', 'recent'];
+  if (!allowedSort.includes(result.sort)) {
+    console.error(`❌ Invalid --sort value: ${result.sort}`);
+    console.error('   Use one of: impressions, likes, recent');
+    process.exit(1);
+  }
+
   return result;
 }
 
@@ -143,21 +159,31 @@ async function searchX(options) {
     xSearchTool.x_search.excluded_x_handles = options.excludeHandles;
   }
   
-  const systemPrompt = options.compact 
-    ? 'You are an X/Twitter search assistant. Return only the tweets found, formatted simply with username, content, and link. No commentary.'
-    : 'You are an X/Twitter search assistant. Search X and return real tweets with usernames, content, dates, and links. Be thorough but concise.';
-  
+  const sortDescription = {
+    impressions: 'highest impressions/views first',
+    likes: 'highest likes first',
+    recent: 'most recent first',
+  }[options.sort];
+
+  const systemPrompt = options.compact
+    ? `You are an X/Twitter search assistant. Return only the top tweets, ordered by ${sortDescription}. No commentary.`
+    : `You are an X/Twitter search assistant. Search X and return real tweets ordered by ${sortDescription}. Be thorough but concise.`;
+
   const payload = {
     model: options.model,
     input: `${systemPrompt}
 
 Search X/Twitter for: ${options.query}
 
+Sort order requirement:
+- ${sortDescription}
+
 Return actual tweets with:
 - @username (display name)
 - Tweet content
 - Date
 - Link to tweet
+- Engagement metrics when available (impressions/views, likes, reposts)
 
 Only include REAL posts. If none found, say so clearly.`,
     tools: [xSearchTool],
@@ -257,6 +283,8 @@ Options:
   --links-only, -l      Only output X links
   --json, -j            Full JSON response
   --model, -m <model>   Model (default: ${DEFAULT_MODEL})
+  --sort, -s <mode>     Sort: impressions | likes | recent
+                         (default: recent, or impressions with --compact)
   --help                Show this help
 
 Examples:
@@ -264,7 +292,10 @@ Examples:
   search-x --days 7 "AI news"
   search-x --handles elonmusk,OpenAI "AI announcements"
   search-x --days 30 --compact "Remotion video"
-  search-x --links-only "trending tech"
+  search-x --compact --sort impressions "AI coding tools"
+  search-x --sort likes "open source launches"
+  search-x --sort recent "trending tech"
+  search-x --links-only --sort impressions "trending tech"
 `);
   process.exit(0);
 }
@@ -278,7 +309,7 @@ if (!options.query) {
 
 // Show search params
 if (!options.json && !options.linksOnly) {
-  console.error(`🔍 Searching X: "${options.query}" (last ${options.days} days)...\n`);
+  console.error(`🔍 Searching X: "${options.query}" (last ${options.days} days, sort: ${options.sort})...\n`);
 }
 
 searchX(options);
