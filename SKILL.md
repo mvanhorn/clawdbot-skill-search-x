@@ -221,9 +221,12 @@ Use `--handles` to restrict results to specific accounts. Use `--exclude` to fil
 ### Output Options
 
 ```bash
-node {baseDir}/scripts/search.js --json "topic"        # Full JSON response with all metadata
-node {baseDir}/scripts/search.js --compact "topic"     # Just tweets, no commentary or citations list
-node {baseDir}/scripts/search.js --links-only "topic"  # Just X links, one per line
+node {baseDir}/scripts/search.js --json "topic"                              # Full JSON response with all metadata
+node {baseDir}/scripts/search.js --compact "topic"                           # Compact tweet list (defaults to --sort impressions)
+node {baseDir}/scripts/search.js --compact --sort impressions "topic"        # Most viewed first (article-focused default)
+node {baseDir}/scripts/search.js --sort likes "topic"                        # Most liked first
+node {baseDir}/scripts/search.js --sort recent "topic"                       # Newest first
+node {baseDir}/scripts/search.js --links-only --sort impressions "topic"     # Links only, ranked by selected sort
 ```
 
 ### Model Selection
