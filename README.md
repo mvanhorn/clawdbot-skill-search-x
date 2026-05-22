@@ -82,6 +82,18 @@ node scripts/search.js --model grok-4.20-multi-agent-beta-0309 "comprehensive AI
 
 Uses xAI's Responses API (`POST /v1/responses`) with the `x_search` tool. This is a first-party xAI tool with access to the full X firehose - not a scraper. The Responses API handles all search orchestration server-side: Grok decides when to search, executes the search, and returns structured results with URL citations. You can combine `x_search` with `web_search` and `code_interpreter` in the same request. See [SKILL.md](SKILL.md) for full documentation of all six search modes, prompt caching, and the Batch API.
 
+## Companion OpenClaw workflow
+
+Search X focuses on X/Twitter research through this skill. For account-backed
+X/Twitter automation from OpenClaw, [TweetClaw](https://github.com/Xquik-dev/tweetclaw)
+adds tweet search, reply search, approval-gated posting, follower export, media
+upload and download, tweet monitors, webhooks, direct messages, and giveaway
+draws through Xquik.
+
+```bash
+openclaw plugins install @xquik/tweetclaw
+```
+
 ## Environment variables
 
 | Variable | Required | Default | Description |

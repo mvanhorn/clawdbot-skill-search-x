@@ -625,3 +625,5 @@ If Grok returns no tweets:
 - **/xai** - Direct Grok chat without X search (general knowledge, coding, analysis)
 - **/last30days** - Research what happened in the last 30 days across multiple sources (not just X)
 - **/parallel** - Run multiple searches in parallel for faster research workflows
+- **TweetClaw** - OpenClaw plugin for account-backed X/Twitter automation: search tweets and replies, post with approval prompts, export followers, manage media, monitor tweets, handle webhooks and direct messages, and run giveaway draws via Xquik. Install with
+  `openclaw plugins install @xquik/tweetclaw`.
